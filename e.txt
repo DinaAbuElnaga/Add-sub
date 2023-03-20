@@ -1,0 +1,533 @@
+package pack1 ;
+
+`include "uvm_macros.svh"
+import uvm_pkg::*;
+
+//sequence item
+  
+class our_packet extends uvm_sequence_item ;
+  
+  `uvm_object_utils (our_packet)
+  
+  // inputs
+   // bit  clk;
+    bit  rst_n;
+    bit  en ;
+    bit  wr;
+    rand bit  [3:0] addr;
+    rand bit  [31:0] data_in;
+
+  //outputs
+  
+    bit [31:0] data_out;
+    bit valid_out ;
+  
+  
+  function new (string name = "our_packet");
+    super.new(name) ; 
+    endfunction
+ 
+endclass
+
+
+//sequence 
+
+
+class our_sequence extends uvm_sequence ;
+  
+  `uvm_object_utils (our_sequence)
+  our_packet pkt;
+  
+  function new (string name = "our_sequence");
+    super.new(name) ; 
+  endfunction
+
+  task pre_body; 
+    
+    pkt = our_packet::type_id::create("pkt") ;  
+    
+  endtask
+  
+  
+  task body ;
+     
+    repeat(20)
+      begin
+        start_item(pkt);
+        pkt.en = 1 ;
+        pkt.rst_n = 1 ;
+        pkt.wr = 1;
+        void'(pkt.randomize());
+        finish_item(pkt);  
+        ///////////////////
+        start_item(pkt);
+        pkt.en = 1 ;
+        pkt.rst_n = 1 ;
+        pkt.wr = 0;
+        void'(pkt.randomize());
+        finish_item(pkt);
+      end 
+       
+  endtask
+  
+endclass
+  
+// sequencer 
+  
+  
+  class our_sequencer extends uvm_sequencer #(our_packet);
+    
+    `uvm_component_utils (our_sequencer)
+    
+    function new (string name = "our_sequencer", uvm_component parent = null);
+      super.new(name , parent) ; 
+    endfunction
+  
+    
+  endclass
+  
+  
+// driver 
+  
+  class our_driver extends uvm_driver #(our_packet) ;
+    
+    `uvm_component_utils (our_driver)
+    
+    virtual our_interface intf_dri ;
+    our_packet pkt;
+      
+    function new (string name = "our_driver", uvm_component parent = null);
+      super.new(name , parent);  
+    endfunction
+   
+    function void build_phase(uvm_phase phase);
+      
+      super.build_phase(phase);
+      $display("build_phase_driver");
+      
+      pkt = our_packet::type_id::create("pkt");
+      
+      if (!uvm_config_db #(virtual our_interface)::get(this , "*" , "intf" , intf_dri))
+        begin
+        `uvm_fatal(get_full_name(), "cannot get driver/monitor configuration from data base")
+        end
+      
+    endfunction
+    
+    function void connect_phase(uvm_phase phase);
+      $display("connect_phase_driver");
+      
+    endfunction
+  
+    task run_phase (uvm_phase phase );
+      
+        forever begin
+          seq_item_port.get_next_item (pkt);
+          
+          $display("run_driver");
+          
+          @(posedge intf_dri.clock)
+          
+          intf_dri.rst_n <= pkt.rst_n ;
+          intf_dri.en <= pkt.en ;
+          intf_dri.wr <= pkt.wr ;
+          intf_dri.addr <= pkt.addr ;
+          intf_dri.data_in <= pkt.data_in ;
+          
+          #1step seq_item_port.item_done();
+          
+        end 
+      
+    endtask 
+ 
+ endclass 
+  
+ // monitor 
+ 
+ class our_monitor extends uvm_monitor ;
+  `uvm_component_utils(our_monitor)
+        
+   virtual our_interface intf1 ;
+   
+   our_packet   pkt1 ;
+   our_packet   pkt2 ;
+   
+   uvm_analysis_port#(our_packet) analysis_port;
+   
+   function new (string name = "our_monitor", uvm_component parent = null);
+     super.new(name , parent);  
+    endfunction
+   
+   function void build_phase(uvm_phase phase);
+     
+     super.build_phase(phase); 
+      $display("build_phase_monitor");
+     
+      pkt1 = our_packet::type_id::create("pkt1");
+      pkt2 = our_packet::type_id::create("pkt2");
+      
+     if (!uvm_config_db #(virtual our_interface)::get(this , "*" , "intf" , intf1 ))
+        `uvm_fatal(get_full_name() , "cannot get driver/monitor configuration from data base")
+       
+       analysis_port = new("analysis_port",this);
+      
+    endfunction
+    
+   function void connect_phase(uvm_phase phase);
+      
+    endfunction
+  
+   task run_phase (uvm_phase phase );
+      
+      forever 
+        @(posedge intf1.clock) begin
+          pkt1.data_out <= intf1.data_out;
+          pkt1.valid_out <= intf1.valid_out;
+          
+          $display("run_phase_monitor");
+          $cast(pkt2 , pkt1.clone());
+          
+          analysis_port.write(pkt2);
+          
+        end
+      
+    endtask     
+  
+ endclass
+  
+// agent 
+      
+    class our_agent extends uvm_agent ;
+    
+        `uvm_component_utils (our_agent)
+      
+      our_sequencer  seq ;
+      our_driver     dri ;
+      our_monitor    moni ;
+    
+      //uvm_analysis_port#(our_packet) analysis_port;  //????????????
+      
+      function new (string name = "our_agent", uvm_component parent = null);
+        super.new(name , parent) ; 
+         
+    endfunction
+   
+      function void build_phase(uvm_phase phase);
+                
+        super.build_phase(phase);
+       $display("build_phase_agent");
+        
+      seq  = our_sequencer::type_id::create("seq",this);
+      dri  = our_driver::type_id::create("dri",this);
+      moni = our_monitor::type_id::create("moni",this);
+ 
+    endfunction
+    
+      function void connect_phase(uvm_phase phase);
+        super.connect_phase(phase);
+        
+        dri.seq_item_port.connect(seq.seq_item_export); 
+        $display("connect_phase_agent");
+     
+    endfunction
+
+    
+  endclass       
+      
+   
+ // subscriber   
+      
+class our_subscriber extends uvm_subscriber#(our_packet);
+    
+  our_packet  pkt_2 ;
+      
+  //covergroups//
+  covergroup group_1();
+    
+     option.per_instance = 1;
+     option.name = "cov_1" ;
+    
+          cover_1: coverpoint pkt_2.data_in {bins bin_1[] = {[0:(2**32)-1]};
+                                            }
+                                            
+          cover_2: coverpoint pkt_2.addr {bins bin_1[] = {[0:(2**4)-1]};
+                                          
+                                         }
+          cover_3: coverpoint pkt_2.en {bins bin_1[] = {[0:1]};
+                                       
+                                       }
+          cover_4: coverpoint pkt_2.data_out {bins bin_1[] = {[0:(2**32)-1]};
+                                            
+                                             }
+          cover_5: coverpoint pkt_2.valid_out {bins bin_1[] = {[0:1]};
+                                               
+                                              }
+          cross_1: cross cover_1, cover_2;
+          cross_2: cross cover_2, cover_4; 
+        endgroup
+  ///////////////////////////////////////////////////////////////////////////////////////////////////////
+    `uvm_component_utils (our_subscriber)
+       
+      uvm_analysis_imp#(our_packet , our_subscriber ) our_subscriber_import;
+  
+      /*
+      covergroup cover_inst ;
+        coverpoint1 : coverpoint pkt_2.data_in {bins x = {30 , 40 , 50 , 62};}
+        
+      endgroup
+    */
+  
+    function new (string name = "our_subscriber", uvm_component parent = null);
+      super.new(name , parent) ; 
+      group_1 = new();
+      
+    endfunction
+   
+      function void build_phase(uvm_phase phase);
+        
+        super.build_phase(phase);
+        $display("build_phase_subscriber");
+        
+        pkt_2 = our_packet::type_id::create("pkt_2");
+        our_subscriber_import = new("our_subscriber_import" , this); //where???????
+      
+    endfunction
+    
+      function void connect_phase(uvm_phase phase);
+        $display("connect_phase_subscriber");
+      
+    endfunction
+      
+  function void write (our_packet t);
+        pkt_2 =  t ;
+       group_1.sample();
+        
+      endfunction  
+       
+      
+    endclass
+      
+      
+   // scoreboard 
+      
+    class our_scoreboard  extends uvm_scoreboard  ;
+      
+      our_packet packet[$];
+    
+      `uvm_component_utils (our_scoreboard)
+     
+      
+      uvm_analysis_imp#(our_packet , our_scoreboard ) our_scoreboard_import;
+    
+      function new (string name = "our_scoreboard", uvm_component parent = null);
+        super.new(name , parent) ; 
+        
+        
+    endfunction
+   
+      function void build_phase(uvm_phase phase);
+        
+        super.build_phase(phase);
+        $display("build_phase_scoreboard");
+      
+        //packet = our_packet::type_id::create("packet");
+        our_scoreboard_import = new("our_scoreboard_import" , this); //where???????
+        
+      
+    endfunction
+    
+      function void connect_phase(uvm_phase phase);
+        $display("connect_phase_scoreboard");
+      
+      endfunction
+      
+      //????????????????????
+      
+      virtual function void write (our_packet pkt); 
+          begin
+        packet.push_back(pkt);
+        
+        if (pkt.data_out == pkt.data_in )
+          `uvm_info(get_type_name() , "TEST IS PASSED !!!!!!!!" , UVM_LOW)
+         else 
+           `uvm_error(get_type_name() , "TEST IS FAILED")
+           end
+           
+           
+      endfunction
+  
+         
+      
+      
+  endclass
+      
+      
+      
+      
+ // env 
+      
+  class our_env extends uvm_env ;
+    
+    `uvm_component_utils (our_env)
+    
+    our_agent agent;
+    our_scoreboard scoreboard ;
+    our_subscriber subscriber ;
+    
+    function new (string name = "our_env", uvm_component parent = null);
+      super.new(name , parent) ; 
+    endfunction
+   
+    function void build_phase(uvm_phase phase);
+      
+      super.build_phase(phase);
+      $display("build_phase_our_env");
+      
+      agent = our_agent::type_id::create("agent",this);
+      scoreboard = our_scoreboard::type_id::create("scoreboard",this);
+      subscriber = our_subscriber::type_id::create("subscriber",this);
+    endfunction
+    
+    function void connect_phase(uvm_phase phase);
+      
+      super.connect_phase(phase);
+      $display("connect_phase_our_env");
+      
+      agent.moni.analysis_port.connect(scoreboard.our_scoreboard_import);
+      agent.moni.analysis_port.connect(subscriber.our_subscriber_import);
+      
+    endfunction
+ 
+  endclass
+
+  
+      
+   // test 
+      
+    class our_test extends uvm_test ;
+    
+      `uvm_component_utils (our_test)
+    
+      our_env env;
+      our_sequence sequence_;
+      
+      virtual our_interface intf;
+      
+      function new (string name = "our_test", uvm_component parent = null);
+        super.new(name , parent)  ;
+        
+        `uvm_info("TEST CLASS","INSIDE CONSTRUCTOR", UVM_HIGH)
+        
+    endfunction
+   
+      function void build_phase(uvm_phase phase);
+        
+        
+        super.build_phase(phase);
+        $display("build_phase_test");
+        
+        if (!uvm_config_db #(virtual our_interface)::get(this , "*" , "intf" , intf ))
+        `uvm_fatal(get_full_name() , "cannot get driver/monitor configuration from data base")
+          
+          env   = our_env::type_id::create("env",this);
+          sequence_ = our_sequence::type_id::create("sequence_",this);
+          
+        uvm_config_db #(virtual our_interface)::set(this , "*" , "intf" , intf );
+      
+    endfunction
+    
+      function void connect_phase(uvm_phase phase);
+      
+    endfunction
+  
+      task run_phase (uvm_phase phase );
+        
+        phase.raise_objection(this,"start");
+        $display("start");
+        sequence_.start(env.agent.seq);
+        $display("post_start");
+        phase.drop_objection(this , "stop");
+      
+    endtask 
+      
+    endclass
+   
+endpackage 
+  
+  
+  
+
+module top ;
+
+  import uvm_pkg::*;
+  import pack1::*; 
+
+  logic clock ;
+  
+  our_interface intf (.clock(clock));
+  
+  memory  dut (
+  
+    .clk(intf.clock),
+    .rst_n(intf.rst_n),
+    .en(intf.en),
+    .wr(intf.wr),
+    .addr(intf.addr),
+    .data_in(intf.data_in),
+    .data_out(intf.data_out),
+    .valid_out(intf.valid_out)
+  );
+  
+  
+    initial  begin      
+      clock = 0 ;
+      #5
+      forever 
+          #2 clock = ~clock; 
+    end 
+  
+  
+  initial 
+    begin 
+      uvm_config_db #(virtual our_interface)::set(null , "*" , "intf" , intf );
+      run_test("our_test");
+    end 
+  
+//always 
+    // #10 intf.en = '1 ;
+   
+     
+    initial 
+    begin 
+      
+      $dumpvars(0 , top);
+      $dumpfile("dump.vcd");
+      
+    end 
+  
+endmodule 
+        
+        
+//interface 
+
+
+interface our_interface (input logic clock);
+  
+    logic  rst_n;
+    logic   en;
+    logic   wr;
+    logic   [3:0] addr;
+    logic   [31:0] data_in;
+  
+    logic   [31:0] data_out;
+    logic  valid_out;
+  
+
+  //task read_write ()
+    
+    
+ // endtask
+  
+  
+  
+endinterface 

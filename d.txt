@@ -1,0 +1,34 @@
+// Code your design here
+// Code your design here
+module memory  
+  (
+    input  clk,
+    input  rst_n,
+    input  en,
+    input  wr,
+    input  [3:0] addr,
+    input  [31:0] data_in,
+    output reg [31:0] data_out,
+    output valid_out
+  );
+  
+ // reg [31:0] data_out;
+  reg [31:0] mem [16];
+  
+  // Write to the memory
+  always @(posedge clk) begin
+    if (rst_n & en & wr) begin 
+      mem[addr] <= data_in;
+    end
+  end // always 
+  
+  // Read from the memory
+  always @(posedge clk) begin
+    if (rst_n & en & !wr) begin
+      data_out <= mem[addr];
+    end
+  end // always
+
+  // Sample the ouptut signals
+  assign valid_out = rst_n & en & !wr? 1 : 0;
+endmodule
